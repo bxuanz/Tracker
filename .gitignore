@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# IDE settings
+.vscode/
+.idea/
+
+# Environment
+venv/
+env/
+.env
+
+# Data (千万不要把你的大TIF传上去)
+*.tif
+*.tiff
+*.png
+*.jpg
+*.json
