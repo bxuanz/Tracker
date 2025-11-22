@@ -2,17 +2,17 @@
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
+
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-green)
 ![License](https://img.shields.io/badge/License-MIT-orange)
 
-**专为大尺度遥感影像与时序图像序列设计的轻量级标注工具 (V7 Pro)**
+**专为大尺度遥感影像与时序图像序列设计的轻量级标注工具**
 
 </div>
 
 **Tracker** 解决了传统标注工具（如 LabelImg/LabelMe）在加载超大 GeoTIFF（500MB+）时内存溢出或卡顿的问题，并引入了 **“事件（Event）”** 的概念，支持对同一目标在不同时间相上的持续追踪标注。
 
-> 🚀 **V7 新特性：** 支持批量事件创建、全序列同步修改、键盘导航及自定义类别管理，专为**固定位置的时序变化监测**（如建筑施工、植被生长）打造。
+> 🚀 **新特性：** 支持批量事件创建、全序列同步修改、键盘导航及自定义类别管理，专为**固定位置的时序变化监测**（如建筑施工、植被生长）打造。
 
 ---
 
