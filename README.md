@@ -29,7 +29,7 @@
 
 ### 1. 克隆仓库
 ```bash
-git clone -b Tracker_V2 https://github.com/bxuanz/Tracker.git
+git clone  https://github.com/bxuanz/Tracker.git
 cd Tracker
 ```
 
