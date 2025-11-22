@@ -1,9 +1,10 @@
 import json
+import re  # <--- 新增这行
 from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QFileDialog, QListWidget, 
                              QInputDialog, QMessageBox, QSplitter, QMenu, 
-                             QScrollArea, QProgressBar, QApplication)  # <--- 这里加了 QApplication
+                             QScrollArea, QProgressBar, QApplication)
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QAction, QColor, QImage, QPixmap
 
@@ -15,7 +16,7 @@ from src.ui.batch_dialog import BatchDialog
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tracker  (Batch Mode & Sync Edit)")
+        self.setWindowTitle("Tracker (Batch Mode & Sync Edit)")
         self.resize(1400, 900)
         
         # Data
@@ -178,71 +179,166 @@ class MainWindow(QMainWindow):
         h = rect.height() / self.downsample_ratio
         return [x, y, w, h]
 
-    # === 3. 调整事件时长 (右键菜单) ===
+    # === 3. 时间轴调整 (右键菜单) ===
     def show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
         if not item: return
         eid = int(item.text().split(":")[0].replace("ID ", ""))
         
         menu = QMenu()
-        # 功能1: 在此结束
-        act_end = QAction(f"Set Frame {self.current_idx+1} as End Point", self)
+        
+        # --- 1. 设置起始帧 ---
+        act_start = QAction(f"⚡ Set Frame {self.current_idx+1} as START", self)
+        act_start.triggered.connect(lambda: self.set_frame_as_start(eid))
+        menu.addAction(act_start)
+        
+        # --- 2. 设置结束帧 ---
+        act_end = QAction(f"⚡ Set Frame {self.current_idx+1} as END", self)
         act_end.triggered.connect(lambda: self.trim_event_after(eid))
         menu.addAction(act_end)
         
-        # 功能2: 延长至此
-        act_ext = QAction(f"Extend Event to Frame {self.current_idx+1}", self)
-        act_ext.triggered.connect(lambda: self.extend_event_to_current(eid))
-        menu.addAction(act_ext)
-        
         menu.addSeparator()
         
-        # 功能3: 删除
+        # --- 3. 彻底删除 ---
         act_del = QAction("Delete Event", self)
         act_del.triggered.connect(lambda: self.delete_event(eid))
         menu.addAction(act_del)
         
         menu.exec(self.list_widget.mapToGlobal(pos))
 
-    def trim_event_after(self, eid):
-        if eid in self.annotations:
-            frames = self.annotations[eid]["frames"]
-            keys_to_del = [k for k in frames.keys() if int(k) > self.current_idx]
+    def set_frame_as_start(self, eid):
+        """智能设置起始帧：向前填充或向后裁切"""
+        if eid not in self.annotations: return
+        frames = self.annotations[eid]["frames"]
+        indices = sorted([int(k) for k in frames.keys()])
+        if not indices: return
+        
+        old_start = indices[0]
+        current = self.current_idx
+        
+        if current < old_start:
+            # 向前扩展：复制原起点的框
+            box = frames[str(old_start)]
+            for i in range(current, old_start):
+                frames[str(i)] = box
+            msg = f"Event {eid} extended BACK to frame {current+1}."
+        elif current > old_start:
+            # 向后裁切：删除之前的
+            keys_to_del = [str(i) for i in indices if i < current]
             for k in keys_to_del: del frames[k]
+            msg = f"Event {eid} trimmed BEFORE frame {current+1}."
+        else:
+            msg = "Already the start frame."
+
+        self.refresh_list()
+        self.render_annotations()
+        self.lbl_status.setText(msg)
+
+    def trim_event_after(self, eid):
+            """
+            将当前帧设为结束帧 (Set as End Point)：
+            1. 寻找当前帧之前的最后一个有效标注帧。
+            2. 如果中间有空隙（例如只标到5，现在在8），自动填充中间所有帧（6, 7, 8）。
+            3. 删除当前帧之后的所有数据。
+            """
+            if eid not in self.annotations: return
+            
+            frames = self.annotations[eid]["frames"]
+            current = self.current_idx
+            
+            # 1. 获取所有已有帧的索引
+            indices = sorted([int(k) for k in frames.keys()])
+            
+            # 2. 找到“当前帧之前”最近的一个有效帧
+            # 比如: indices=[2,3,4,5], current=8. valid_prev=[2,3,4,5], last_valid=5
+            valid_prev = [i for i in indices if i < current]
+            
+            if valid_prev:
+                last_valid = valid_prev[-1]
+                box = frames[str(last_valid)] # 获取那个最近帧的框
+                
+                # === 核心逻辑修改：循环填充空隙 ===
+                # 从 (最近帧 + 1) 开始，一直填充到 (当前帧)
+                # 例如: range(6, 9) -> 会填充 6, 7, 8
+                for i in range(last_valid + 1, current + 1):
+                    frames[str(i)] = box
+                    
+            elif str(current) not in frames:
+                # 如果前面没有帧，且当前帧也没框，说明用户在事件开始前点了结束
+                # 这种情况下通常不应该发生，或者意味着删除该事件
+                pass
+
+            # 3. 删除当前帧之后的所有数据
+            keys_to_del = [k for k in frames.keys() if int(k) > current]
+            for k in keys_to_del:
+                del frames[k]
+                
             self.refresh_list()
             self.render_annotations()
-            self.lbl_status.setText(f"Event {eid} trimmed.")
+            self.lbl_status.setText(f"Event {eid} extended & ended at frame {self.current_idx+1}.")
 
     def extend_event_to_current(self, eid):
+        # 保留此方法作为备用逻辑
         if eid in self.annotations:
             frames = self.annotations[eid]["frames"]
             indices = sorted([int(k) for k in frames.keys()])
             if not indices: return
             last_idx = indices[-1]
             if self.current_idx > last_idx:
-                box = frames[str(last_idx)] # 复制最后一帧的框
+                box = frames[str(last_idx)]
                 for i in range(last_idx + 1, self.current_idx + 1):
                     frames[str(i)] = box
                 self.refresh_list()
                 self.render_annotations()
-                self.lbl_status.setText(f"Event {eid} extended.")
+                self.lbl_status.setText(f"Event {eid} extended to frame {self.current_idx+1}.")
 
     # === 基础功能 (Load/Render/Nav) ===
     def load_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if not folder: return
-        exts = ['*.tif', '*.tiff', '*.png', '*.jpg', '*.jpeg']; files = []
-        for ext in exts: 
-            files.extend(list(Path(folder).glob(ext)))
-            files.extend(list(Path(folder).glob(ext.upper())))
-        self.image_paths = sorted(list(set([str(f) for f in files])))
-        if not self.image_paths: return
-        self.image_map = {Path(p).name: i for i, p in enumerate(self.image_paths)}
-        
-        self.load_annotations(folder)
-        self.setup_frame_bar()
-        self.current_idx = 0
-        self.load_image()
+            folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+            if not folder: return
+            
+            # 1. 获取所有图片文件
+            exts = ['*.tif', '*.tiff', '*.png', '*.jpg', '*.jpeg']
+            files = []
+            for ext in exts: 
+                files.extend(list(Path(folder).glob(ext)))
+                files.extend(list(Path(folder).glob(ext.upper())))
+            
+            # 去重
+            files = list(set([str(f) for f in files]))
+            
+            if not files: return
+
+            # === 核心修改：自定义日期排序逻辑 ===
+            def extract_date(filename):
+                # 尝试匹配 YYYY-MM-DD 格式 (例如: -2005-12-20_)
+                # 逻辑：查找 4位数字-2位数字-2位数字
+                match = re.search(r'(\d{4})[-_](\d{2})[-_](\d{2})', Path(filename).name)
+                if match:
+                    # 返回一个元组 (2005, 12, 20) 用于比较
+                    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+                else:
+                    # 如果匹配不到日期，就退化为按文件名排序，放在列表最后
+                    return (9999, 99, 99)
+
+            # 使用自定义 key 进行排序
+            # Python 的 sort 是稳定的，如果有日期按日期排，没日期按文件名排
+            try:
+                self.image_paths = sorted(files, key=extract_date)
+                # 打印一下排序结果供调试 (可选)
+                print("Sorted files:")
+                for p in self.image_paths: print(Path(p).name)
+            except Exception as e:
+                print(f"Sort failed: {e}, falling back to default sort.")
+                self.image_paths = sorted(files)
+            # =================================
+
+            self.image_map = {Path(p).name: i for i, p in enumerate(self.image_paths)}
+            
+            self.load_annotations(folder)
+            self.setup_frame_bar()
+            self.current_idx = 0
+            self.load_image()
 
     def load_image(self):
         if not self.image_paths: return

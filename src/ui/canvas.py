@@ -27,7 +27,9 @@ class AnnotationCanvas(QWidget):
         # 编辑状态变量
         self.active_rect_index = -1    
         self.active_rect_geo = QRectF() 
-        self.handle_size = 10 
+        
+        # === 优化点: 加大鼠标判定范围 ===
+        self.handle_size = 20  # 判定区域大小 (看不见但摸得着)
 
     def set_image(self, pixmap):
         self.pixmap = pixmap
@@ -59,7 +61,7 @@ class AnnotationCanvas(QWidget):
         return (pos - self.view_offset) / self.view_scale
 
     def get_resize_handle(self, rect):
-        # 获取右下角的控制点区域
+        # 获取右下角的控制点区域 (判定区)
         return QRectF(rect.right() - self.handle_size, rect.bottom() - self.handle_size, 
                       self.handle_size * 2, self.handle_size * 2)
 
@@ -86,13 +88,18 @@ class AnnotationCanvas(QWidget):
                 painter.setBrush(QBrush(brush))
                 painter.drawRect(draw_rect)
                 
-                # 选中状态下画把手
+                # === 优化点: 绘制高亮醒目的把手 ===
                 if is_sel:
-                    h_size = 8 * inv_scale
-                    painter.setPen(Qt.GlobalColor.white)
-                    painter.setBrush(QBrush(Qt.GlobalColor.blue))
-                    painter.drawRect(QRectF(draw_rect.bottomRight() - QPointF(h_size, h_size), 
-                                            QPointF(draw_rect.bottomRight() + QPointF(h_size, h_size))))
+                    # 视觉大小 (比判定区稍小，显得精致)
+                    vis_size = 12 * inv_scale
+                    
+                    # 白色边框 + 青色填充 (在深色背景下极高对比度)
+                    painter.setPen(QPen(Qt.GlobalColor.white, 2 * inv_scale))
+                    painter.setBrush(QBrush(Qt.GlobalColor.cyan))
+                    
+                    center = draw_rect.bottomRight()
+                    painter.drawRect(QRectF(center - QPointF(vis_size, vis_size), 
+                                            center + QPointF(vis_size, vis_size)))
 
                 # 画标签
                 painter.save()
@@ -156,6 +163,7 @@ class AnnotationCanvas(QWidget):
             self.start_pos = buf_pos
             self.update()
         elif self.mode == "RESIZING":
+            # 简单的右下角拉伸
             self.active_rect_geo = QRectF(self.active_rect_geo.topLeft(), buf_pos).normalized()
             self.update()
 
