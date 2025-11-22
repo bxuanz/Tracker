@@ -2,6 +2,8 @@ import numpy as np
 import rasterio
 from PIL import Image
 
+Image.MAX_IMAGE_PIXELS = None
+
 MAX_TEXTURE_SIZE = 8192 
 
 class ImageLoader:
