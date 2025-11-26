@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QFileDialog, QListWidget, 
                              QInputDialog, QMessageBox, QSplitter, QMenu, 
                              QScrollArea, QProgressBar, QApplication, 
-                             QListWidgetItem, QAbstractItemView)
+                             QListWidgetItem, QAbstractItemView, QGroupBox, 
+                             QRadioButton, QButtonGroup, QComboBox)
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QAction, QColor, QImage, QPixmap, QIcon, QBrush
 
@@ -29,7 +30,7 @@ class MainWindow(QMainWindow):
         self.image_map = {} 
         self.current_idx = 0
         
-        # 1. 事件数据 (内存中): { eid: {category, caption, box(xywh), frame_indices(set)} }
+        # 1. 事件数据 (内存中): { eid: {category, caption, box(xywh), frame_indices(set), quality_status, reject_reason} }
         self.annotations = {}
         # 2. 质量数据: { "filename.tif": "poor" / "good" }
         self.quality_map = {} 
@@ -42,9 +43,29 @@ class MainWindow(QMainWindow):
         self.downsample_ratio = 1.0 # 仅做备用
         
         self.config = ConfigManager()
+
+        # [新增] 加载错误原因配置
+        self.error_reasons = self.load_error_config()
         
         self.create_menu_bar()
         self.init_ui()
+
+    def load_error_config(self):
+        """读取 config/error_reasons.json"""
+        # 假设 config 文件夹在项目根目录下 (src 的同级目录)
+        try:
+            base_dir = Path(__file__).resolve().parent.parent.parent
+            config_path = base_dir / "config" / "error_reasons.json"
+            
+            default_reasons = ["框不贴合 (Box Loose)", "类别错误 (Wrong Label)", "遮挡严重 (Occluded)", "其他 (Other)"]
+            
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data.get("reasons", default_reasons)
+            return default_reasons
+        except Exception:
+            return ["框不贴合", "类别错误", "其他"]
 
     def create_menu_bar(self):
         menubar = self.menuBar()
@@ -184,6 +205,46 @@ class MainWindow(QMainWindow):
         v_splitter.setStretchFactor(0, 1)
         v_splitter.setStretchFactor(1, 2)
         
+        right_layout.addWidget(btn_load)
+        right_layout.addWidget(v_splitter) 
+
+        # ==================== [新增] 质量评价面板 ====================
+        self.qc_group = QGroupBox("选中事件评价 (Event Quality)")
+        self.qc_group.setEnabled(False) # 默认禁用
+        self.qc_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid gray; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }")
+        
+        qc_layout = QVBoxLayout(self.qc_group)
+        qc_layout.setSpacing(5)
+        
+        # 单选按钮
+        rb_layout = QHBoxLayout()
+        self.rb_good = QRadioButton("✅ 合格 (Good)")
+        self.rb_bad = QRadioButton("❌ 劣质 (Bad)")
+        self.rb_good.setChecked(True)
+        
+        self.qc_btn_group = QButtonGroup(self)
+        self.qc_btn_group.addButton(self.rb_good)
+        self.qc_btn_group.addButton(self.rb_bad)
+        
+        rb_layout.addWidget(self.rb_good)
+        rb_layout.addWidget(self.rb_bad)
+        qc_layout.addLayout(rb_layout)
+        
+        # 原因选择
+        qc_layout.addWidget(QLabel("劣质原因 (Reason):"))
+        self.combo_reason = QComboBox()
+        self.combo_reason.addItems(self.error_reasons)
+        self.combo_reason.setEnabled(False)
+        qc_layout.addWidget(self.combo_reason)
+        
+        # 连接信号
+        self.rb_good.toggled.connect(self.on_qc_changed)
+        self.rb_bad.toggled.connect(self.on_qc_changed)
+        self.combo_reason.currentTextChanged.connect(self.on_reason_changed)
+        
+        right_layout.addWidget(self.qc_group)
+        # ==========================================================
+
         # Bottom Status
         self.lbl_status = QLabel("Status: Idle")
         self.lbl_status.setWordWrap(True)
@@ -193,8 +254,6 @@ class MainWindow(QMainWindow):
         btn_save.clicked.connect(self.save_all)
         btn_save.setStyleSheet("height: 40px; font-weight: bold; background-color: #007ACC; color: white;")
         
-        right_layout.addWidget(btn_load)
-        right_layout.addWidget(v_splitter) 
         right_layout.addWidget(self.lbl_status)
         right_layout.addWidget(btn_save)
         
@@ -206,6 +265,67 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter)
         
         self.frame_btns = []
+
+    # === [新增] 质量评价逻辑函数 ===
+
+    def update_qc_ui_from_data(self, eid):
+        """根据当前选中的 Event ID 更新评价面板 UI"""
+        if eid not in self.annotations:
+            self.qc_group.setEnabled(False)
+            return
+            
+        self.qc_group.setEnabled(True)
+        data = self.annotations[eid]
+        
+        # 获取状态，默认 good
+        status = data.get("quality_status", "good")
+        reason = data.get("reject_reason", "")
+        
+        # 暂停信号防止循环触发
+        self.rb_good.blockSignals(True)
+        self.rb_bad.blockSignals(True)
+        self.combo_reason.blockSignals(True)
+        
+        if status == "bad":
+            self.rb_bad.setChecked(True)
+            self.combo_reason.setEnabled(True)
+            # 设置下拉框文字
+            idx = self.combo_reason.findText(reason)
+            if idx != -1:
+                self.combo_reason.setCurrentIndex(idx)
+            else:
+                if reason: # 如果原因不在列表中，临时添加或仅显示第一项
+                    self.combo_reason.addItem(reason)
+                    self.combo_reason.setCurrentText(reason)
+        else:
+            self.rb_good.setChecked(True)
+            self.combo_reason.setEnabled(False)
+            
+        self.rb_good.blockSignals(False)
+        self.rb_bad.blockSignals(False)
+        self.combo_reason.blockSignals(False)
+
+    def on_qc_changed(self):
+        """Good/Bad 切换时触发"""
+        if not self.current_event_id or self.current_event_id not in self.annotations:
+            return
+            
+        is_bad = self.rb_bad.isChecked()
+        self.combo_reason.setEnabled(is_bad)
+        
+        # 更新数据
+        self.annotations[self.current_event_id]["quality_status"] = "bad" if is_bad else "good"
+        if is_bad:
+            self.annotations[self.current_event_id]["reject_reason"] = self.combo_reason.currentText()
+        else:
+            self.annotations[self.current_event_id]["reject_reason"] = None
+            
+        self.lbl_status.setText(f"Updated Quality for Event ID {self.current_event_id}")
+
+    def on_reason_changed(self, text):
+        """下拉框选择改变时触发"""
+        if self.current_event_id and self.rb_bad.isChecked():
+            self.annotations[self.current_event_id]["reject_reason"] = text
 
     # === 1. 精准坐标计算 ===
     
@@ -249,7 +369,12 @@ class MainWindow(QMainWindow):
                 
                 rect = QRectF(bx, by, bw, bh)
                 is_sel = (eid == self.current_event_id)
-                to_draw.append((rect, self.get_color(eid), f"ID {eid}: {data['category']}", is_sel))
+                # 可以在这里根据 Good/Bad 改变颜色，或者保持不变
+                label = f"ID {eid}: {data['category']}"
+                if data.get("quality_status") == "bad":
+                    label += " (BAD)"
+                    
+                to_draw.append((rect, self.get_color(eid), label, is_sel))
         self.canvas.set_annotations(to_draw)
 
     # === 2. 核心增删改逻辑 ===
@@ -291,7 +416,9 @@ class MainWindow(QMainWindow):
                         "category": sub_cat, 
                         "caption": caption, 
                         "box": real_box,
-                        "frame_indices": new_indices
+                        "frame_indices": new_indices,
+                        "quality_status": "good",  # 默认为 Good
+                        "reject_reason": None
                     }
                     self.refresh_list()
                     self.select_by_id(new_id)
@@ -334,7 +461,10 @@ class MainWindow(QMainWindow):
                     "category": data["category"],
                     "caption": data["caption"],
                     "box_2d": [x, y, x2, y2], 
-                    "involved_frames": frames_names
+                    "involved_frames": frames_names,
+                    # [新增] 保存质量信息
+                    "quality_status": data.get("quality_status", "good"),
+                    "reject_reason": data.get("reject_reason", None)
                 }
                 
             # 3. 构建 image_quality 字典
@@ -354,7 +484,6 @@ class MainWindow(QMainWindow):
                 with open(save_path, 'w', encoding='utf-8') as f:
                     json.dump(final_json, f, indent=4, ensure_ascii=False)
                 
-                # === 修改点：生成详细的报告信息 ===
                 report = (f"✅ 保存成功 (Save Successful)!\n\n"
                         f"📂 路径: {save_path}\n"
                         f"----------------------------------\n"
@@ -363,7 +492,6 @@ class MainWindow(QMainWindow):
                         f"📐 坐标格式: XYXY (Left-Top, Right-Bottom)")
                 
                 QMessageBox.information(self, "Save Report", report)
-                # ======================================
                 
                 # 更新列表颜色
                 curr_items = self.folder_list.selectedItems()
@@ -406,7 +534,10 @@ class MainWindow(QMainWindow):
                         "category": dat.get("category", "Unk"),
                         "caption": dat.get("caption", ""),
                         "box": box_xywh,
-                        "frame_indices": idx_set
+                        "frame_indices": idx_set,
+                        # [新增] 读取质量信息
+                        "quality_status": dat.get("quality_status", "good"),
+                        "reject_reason": dat.get("reject_reason", None)
                     }
                 self.refresh_list()
             except Exception as e: print(f"Load Error: {e}")
@@ -519,7 +650,17 @@ class MainWindow(QMainWindow):
             return ", ".join(ranges)
         for eid in sorted(self.annotations.keys()):
             d = self.annotations[eid]; rng = format_ranges(d['frame_indices']); cat = d.get("category", "Unk")
-            item = QListWidgetItem(f"ID {eid}: {cat} [{rng}]")
+            
+            # 列表显示状态标记
+            display_text = f"ID {eid}: {cat} [{rng}]"
+            if d.get("quality_status") == "bad":
+                display_text += " ❌"
+                
+            item = QListWidgetItem(display_text)
+            # 如果是 bad，可以让列表项变红
+            if d.get("quality_status") == "bad":
+                item.setForeground(QBrush(QColor("red")))
+                
             self.event_list.addItem(item)
 
     def show_context_menu(self, pos):
@@ -566,34 +707,46 @@ class MainWindow(QMainWindow):
         self.refresh_list(); self.render_annotations()
 
     def delete_event(self, eid):
-        if eid in self.annotations: del self.annotations[eid]; self.current_event_id = None; self.refresh_list(); self.render_annotations()
+        if eid in self.annotations: 
+            del self.annotations[eid]
+            self.current_event_id = None
+            self.qc_group.setEnabled(False) # [修改] 删除后禁用面板
+            self.refresh_list(); self.render_annotations()
 
     def select_event(self, item):
-        try: eid = int(item.text().split(":")[0].replace("ID ", "")); self.current_event_id = eid; self.render_annotations()
+        try: 
+            eid = int(item.text().split(":")[0].replace("ID ", ""))
+            self.current_event_id = eid
+            self.render_annotations()
+            # [新增] 更新评价 UI
+            self.update_qc_ui_from_data(eid)
         except: pass
+
     def select_by_id(self, eid):
         self.current_event_id = eid
         for i in range(self.event_list.count()):
-            if self.event_list.item(i).text().startswith(f"ID {eid}:"): self.event_list.setCurrentRow(i); break
+            if self.event_list.item(i).text().startswith(f"ID {eid}:"): 
+                self.event_list.setCurrentRow(i); break
         self.render_annotations()
+        # [新增] 更新评价 UI
+        self.update_qc_ui_from_data(eid)
+
     def get_color(self, eid): return QColor.fromHsv(int((eid * 137.5) % 360), 200, 255)
+    
     def setup_frame_bar(self):
-            # 1. 清空旧布局 (标准写法，安全可靠)
             while self.frame_layout.count():
                 child = self.frame_layout.takeAt(0)
                 if child.widget():
                     child.widget().deleteLater()
-            
-            # 2. 重新生成按钮
             self.frame_btns = []
             for i in range(len(self.image_paths)):
                 btn = QPushButton(str(i+1))
                 btn.setFixedSize(30, 30)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                # 注意 lambda 闭包
                 btn.clicked.connect(lambda _, x=i: self.jump_frame(x))
                 self.frame_layout.addWidget(btn)
                 self.frame_btns.append(btn)
+                
     def update_frame_bar(self):
         for i, b in enumerate(self.frame_btns): b.setStyleSheet("background:#007ACC;color:white" if i==self.current_idx else "background:#444;color:#aaa;border:none")
     def jump_frame(self, idx): 
