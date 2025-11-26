@@ -2,6 +2,12 @@
 
 <div align="center">
 
+**[English](README_en.md) | 简体中文**
+
+</div>
+
+<div align="center">
+
 
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-green)
 ![License](https://img.shields.io/badge/License-MIT-orange)
