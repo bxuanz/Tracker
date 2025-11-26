@@ -1,35 +1,32 @@
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QCursor
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush
 
 class AnnotationCanvas(QWidget):
-    # 信号: (rect, is_new_creation)
-    # is_new_creation=True 表示新建框，False 表示修改旧框
+    # 信号: rect(Buffer坐标), is_new_creation
     geometry_changed = pyqtSignal(QRectF, bool) 
+    # 信号: 实时鼠标坐标 (x, y)
+    mouse_moved_info = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(800, 500)
         self.setStyleSheet("background-color: #202020;")
-        self.setMouseTracking(True) 
+        self.setMouseTracking(True)
         
         self.pixmap = None
         self.view_scale = 1.0
         self.view_offset = QPointF(0, 0)
         self.annotations_to_draw = [] 
         
-        # 交互状态
-        self.mode = "IDLE" # 状态机: IDLE, DRAWING, PANNING, MOVING, RESIZING
+        self.mode = "IDLE" 
         self.last_mouse_pos = QPointF()
         self.start_pos = QPointF()     
         self.current_rect = QRectF()   
         
-        # 编辑状态变量
         self.active_rect_index = -1    
         self.active_rect_geo = QRectF() 
-        
-        # === 优化点: 加大鼠标判定范围 ===
-        self.handle_size = 20  # 判定区域大小 (看不见但摸得着)
+        self.handle_size = 20 
 
     def set_image(self, pixmap):
         self.pixmap = pixmap
@@ -39,8 +36,6 @@ class AnnotationCanvas(QWidget):
         self.annotations_to_draw = annos
         self.active_rect_index = -1
         self.active_rect_geo = QRectF()
-        
-        # 寻找当前被选中的框，用于编辑
         for i, (rect, _, _, is_sel) in enumerate(annos):
             if is_sel:
                 self.active_rect_index = i
@@ -58,10 +53,17 @@ class AnnotationCanvas(QWidget):
         self.update()
 
     def screen_to_buffer(self, pos):
-        return (pos - self.view_offset) / self.view_scale
+        # 1. 算出原始映射坐标
+        raw_pos = (pos - self.view_offset) / self.view_scale
+        
+        # 2. === 核心修改: 强制限制在图像范围内 (Clamp) ===
+        if self.pixmap:
+            x = max(0.0, min(raw_pos.x(), float(self.pixmap.width())))
+            y = max(0.0, min(raw_pos.y(), float(self.pixmap.height())))
+            return QPointF(x, y)
+        return raw_pos
 
     def get_resize_handle(self, rect):
-        # 获取右下角的控制点区域 (判定区)
         return QRectF(rect.right() - self.handle_size, rect.bottom() - self.handle_size, 
                       self.handle_size * 2, self.handle_size * 2)
 
@@ -77,7 +79,6 @@ class AnnotationCanvas(QWidget):
             inv_scale = 1.0 / self.view_scale
             
             for i, (rect, color, label, is_sel) in enumerate(self.annotations_to_draw):
-                # 如果是选中状态且正在拖拽，绘制实时的 active_rect_geo，否则绘制原始 rect
                 draw_rect = self.active_rect_geo if (is_sel and self.mode in ["MOVING", "RESIZING"]) else rect
                 
                 pen_width = 2.0 * inv_scale if is_sel else 1.5 * inv_scale
@@ -88,20 +89,14 @@ class AnnotationCanvas(QWidget):
                 painter.setBrush(QBrush(brush))
                 painter.drawRect(draw_rect)
                 
-                # === 优化点: 绘制高亮醒目的把手 ===
                 if is_sel:
-                    # 视觉大小 (比判定区稍小，显得精致)
                     vis_size = 12 * inv_scale
-                    
-                    # 白色边框 + 青色填充 (在深色背景下极高对比度)
                     painter.setPen(QPen(Qt.GlobalColor.white, 2 * inv_scale))
                     painter.setBrush(QBrush(Qt.GlobalColor.cyan))
-                    
                     center = draw_rect.bottomRight()
                     painter.drawRect(QRectF(center - QPointF(vis_size, vis_size), 
                                             center + QPointF(vis_size, vis_size)))
 
-                # 画标签
                 painter.save()
                 painter.translate(draw_rect.topLeft())
                 painter.scale(inv_scale, inv_scale)
@@ -126,7 +121,6 @@ class AnnotationCanvas(QWidget):
             self.last_mouse_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
-            # 判定顺序：先看是否点把手(Resize) -> 再看是否点框内(Move) -> 否则是画图(Draw)
             if self.active_rect_index != -1:
                 if self.get_resize_handle(self.active_rect_geo).contains(buf_pos):
                     self.mode = "RESIZING"; self.start_pos = buf_pos; return
@@ -140,7 +134,9 @@ class AnnotationCanvas(QWidget):
     def mouseMoveEvent(self, event):
         buf_pos = self.screen_to_buffer(event.position())
         
-        # 鼠标样式逻辑
+        # === 实时发送坐标给 Main Window ===
+        self.mouse_moved_info.emit(int(buf_pos.x()), int(buf_pos.y()))
+        
         if self.mode == "IDLE" and self.active_rect_index != -1:
             if self.get_resize_handle(self.active_rect_geo).contains(buf_pos):
                 self.setCursor(Qt.CursorShape.SizeFDiagCursor)
@@ -163,7 +159,6 @@ class AnnotationCanvas(QWidget):
             self.start_pos = buf_pos
             self.update()
         elif self.mode == "RESIZING":
-            # 简单的右下角拉伸
             self.active_rect_geo = QRectF(self.active_rect_geo.topLeft(), buf_pos).normalized()
             self.update()
 
@@ -176,9 +171,9 @@ class AnnotationCanvas(QWidget):
                 img_rect = QRectF(0, 0, self.pixmap.width(), self.pixmap.height())
                 final = self.current_rect.intersected(img_rect)
                 if final.width() > 2 and final.height() > 2:
-                    self.geometry_changed.emit(final, True) # True: 新建
+                    self.geometry_changed.emit(final, True)
             elif self.mode in ["MOVING", "RESIZING"]:
-                self.geometry_changed.emit(self.active_rect_geo, False) # False: 修改
+                self.geometry_changed.emit(self.active_rect_geo, False)
             
             self.mode = "IDLE"
             self.current_rect = QRectF()
