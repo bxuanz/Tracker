@@ -2,7 +2,7 @@ import json
 import os
 
 class ConfigManager:
-    def __init__(self, config_path="categories.json"):
+    def __init__(self, config_path="config/categories.json"):
         self.config_path = config_path
         # 默认多级类别结构
         self.default_categories = {

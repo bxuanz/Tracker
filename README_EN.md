@@ -1,4 +1,7 @@
-# <div align="center">Tracker 🛰️📅</div>
+<div align="center">
+<img src="./assets/icon.png" alt="tracker-icon" height="70"/>
+</div>
+
 
 <div align="center">
 
