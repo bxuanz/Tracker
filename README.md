@@ -6,8 +6,6 @@
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-green)
 ![License](https://img.shields.io/badge/License-MIT-orange)
 
-# <div align="center">Tracker 🛰️📅</div>
-
 
 **一款通用的时序影像事件标注工具：从大尺度遥感影像到普通图像全覆盖**
 
