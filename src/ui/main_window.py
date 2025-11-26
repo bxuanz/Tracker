@@ -168,56 +168,60 @@ class MainWindow(QMainWindow):
 
     # === 核心: 创建/修改 ===
     def on_geometry_changed(self, rect, is_new):
-        real_box = self.rect_to_real(rect)
-        
-        if is_new:
-            existing_events = {}
-            for eid, data in self.annotations.items():
-                existing_events[eid] = {
-                    'category': data.get('category', ''),
-                    'caption': data.get('caption', '')
-                }
-
-            dlg = BatchDialog(self, self.config.categories, self.current_idx, len(self.image_paths), existing_events)
+            real_box = self.rect_to_real(rect)
             
-            if dlg.exec():
-                data = dlg.result_data
-                target_id = data["target_id"]
-                end_idx = data["end_idx"]
-                
-                new_indices = set(range(self.current_idx, end_idx + 1))
-
-                if target_id != -1:
-                    # 追加模式
-                    if target_id in self.annotations:
-                        self.annotations[target_id]["frame_indices"].update(new_indices)
-                        self.annotations[target_id]["box"] = real_box # 更新框
-                        self.select_by_id(target_id)
-                        self.lbl_status.setText(f"Appended frames to ID {target_id}.")
-                else:
-                    # 新建模式
-                    category = data["category"]
-                    caption = data["caption"]
-                    self.config.add_category(category)
-                    
-                    new_id = max(self.annotations.keys(), default=0) + 1
-                    self.annotations[new_id] = {
-                        "category": category, 
-                        "caption": caption, 
-                        "box": real_box,
-                        "frame_indices": new_indices
+            if is_new:
+                existing_events = {}
+                for eid, data in self.annotations.items():
+                    existing_events[eid] = {
+                        'category': data.get('category', ''),
+                        'caption': data.get('caption', '')
                     }
-                    self.refresh_list()
-                    self.select_by_id(new_id)
-                    self.lbl_status.setText(f"Created New Event {new_id}.")
-            self.render_annotations()
-            
-        else:
-            # 修改模式
-            if not self.current_event_id: return
-            self.annotations[self.current_event_id]["box"] = real_box
-            self.render_annotations()
-            self.lbl_status.setText(f"Updated Box for Event {self.current_event_id}.")
+
+                dlg = BatchDialog(self, self.config.categories, self.current_idx, len(self.image_paths), existing_events)
+                
+                if dlg.exec():
+                    data = dlg.result_data
+                    target_id = data["target_id"]
+                    end_idx = data["end_idx"]
+                    
+                    new_indices = set(range(self.current_idx, end_idx + 1))
+
+                    if target_id != -1:
+                        # === 追加模式 (Append) ===
+                        if target_id in self.annotations:
+                            self.annotations[target_id]["frame_indices"].update(new_indices)
+                            self.annotations[target_id]["box"] = real_box 
+                            
+                            # [修复点]：必须先刷新列表，更新显示的帧范围文本
+                            self.refresh_list() 
+                            
+                            self.select_by_id(target_id)
+                            self.lbl_status.setText(f"Appended frames to ID {target_id}.")
+                    else:
+                        # === 新建模式 (New) ===
+                        category = data["category"]
+                        caption = data["caption"]
+                        self.config.add_category(category)
+                        
+                        new_id = max(self.annotations.keys(), default=0) + 1
+                        self.annotations[new_id] = {
+                            "category": category, 
+                            "caption": caption, 
+                            "box": real_box,
+                            "frame_indices": new_indices
+                        }
+                        self.refresh_list()
+                        self.select_by_id(new_id)
+                        self.lbl_status.setText(f"Created New Event {new_id}.")
+                self.render_annotations()
+                
+            else:
+                # === 修改模式 (Edit) ===
+                if not self.current_event_id: return
+                self.annotations[self.current_event_id]["box"] = real_box
+                self.render_annotations()
+                self.lbl_status.setText(f"Updated Box for Event {self.current_event_id}.")
 
     def render_annotations(self):
         to_draw = []
@@ -421,9 +425,10 @@ class MainWindow(QMainWindow):
             # 辅助函数：将数字列表转换为范围字符串 (如 [0,1,2,5] -> "1-3, 6")
             def format_ranges(indices):
                 if not indices: return "Empty"
-                # 转为 1-based 索引并排序
                 sorted_idx = sorted([i + 1 for i in indices])
                 ranges = []
+                if not sorted_idx: return "Empty"
+                
                 start = sorted_idx[0]
                 prev = sorted_idx[0]
                 
@@ -435,7 +440,7 @@ class MainWindow(QMainWindow):
                         else: ranges.append(f"{start}-{prev}")
                         start = i
                         prev = i
-                # 处理最后一个
+                
                 if start == prev: ranges.append(f"{start}")
                 else: ranges.append(f"{start}-{prev}")
                 
@@ -449,13 +454,19 @@ class MainWindow(QMainWindow):
                 # 1. 计算范围字符串
                 range_str = format_ranges(indices)
                 
-                # 2. 使用 HTML 样式优化显示
-                # ID和类别用白色，帧范围用醒目的青色(Cyan)加粗
-                # 如果字符串太长，可以考虑截断，这里暂时完整显示
-                item_text = (f"ID {eid}: {cat} "
-                            f"<span style='color: #00FFFF; font-weight: bold;'>[{range_str}]</span>")
+                # 2. === 修复：使用纯文本，移除 HTML ===
+                # 格式： ID 1: 建筑施工 [1-5, 8-10]
+                plain_text = f"ID {eid}: {cat} [{range_str}]"
                 
-                self.list_widget.addItem(item_text)
+                # 3. 创建 Item 对象
+                from PyQt6.QtWidgets import QListWidgetItem # 确保引用了这个
+                item = QListWidgetItem(plain_text)
+                
+                # (可选) 如果你想让文字显眼一点，可以设置整行颜色，例如亮青色
+                # item.setForeground(QColor("#00FFFF")) 
+                
+                self.list_widget.addItem(item)
+
     def load_image(self):
         if not self.image_paths: return
         self.pbar.setVisible(True); QApplication.processEvents()
