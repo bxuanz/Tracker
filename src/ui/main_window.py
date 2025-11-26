@@ -15,6 +15,7 @@ from src.utils.config_manager import ConfigManager
 from src.ui.canvas import AnnotationCanvas
 from src.ui.batch_dialog import BatchDialog
 from src.ui.category_dialog import CategoryManagerDialog
+from src.ui.edit_dialog import EditEventDialog  # <--- 新增
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -665,6 +666,11 @@ class MainWindow(QMainWindow):
         if not item: return
         eid = int(item.text().split(":")[0].replace("ID ", ""))
         menu = QMenu()
+        act_edit = QAction("✏️ Edit Event Info (Category/Caption)", self)
+        act_edit.triggered.connect(lambda: self.edit_event_info(eid))
+        menu.addAction(act_edit)
+        menu.addSeparator()
+
         menu.addAction("❌ Remove Box from Current Frame", lambda: self.remove_box_on_current(eid))
         menu.addSeparator()
         menu.addAction("⚡ Set Current as START", lambda: self.set_frame_as_start(eid))
@@ -758,3 +764,29 @@ class MainWindow(QMainWindow):
         if event.key() in [Qt.Key.Key_Left, Qt.Key.Key_Up]: self.prev_frame()
         elif event.key() in [Qt.Key.Key_Right, Qt.Key.Key_Down]: self.next_frame()
         else: super().keyPressEvent(event)
+    def edit_event_info(self, eid):
+        """编辑已有事件的属性"""
+        if eid not in self.annotations: return
+        
+        data = self.annotations[eid]
+        old_cat = data.get("category", "")
+        old_cap = data.get("caption", "")
+        
+        # 弹出编辑对话框
+        dlg = EditEventDialog(self, self.config.categories, old_cat, old_cap)
+        if dlg.exec():
+            res = dlg.result_data
+            new_group = res["group"]
+            new_cat = res["category"]
+            new_cap = res["caption"]
+            
+            # 1. 更新内存数据
+            self.annotations[eid]["category"] = new_cat
+            self.annotations[eid]["caption"] = new_cap
+            
+            # 2. 如果是新类别，保存到配置
+            self.config.add_category(new_group, new_cat)
+            
+            # 3. 刷新界面
+            self.refresh_list()
+            self.lbl_status.setText(f"Updated info for Event {eid}.")
