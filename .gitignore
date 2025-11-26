@@ -17,3 +17,7 @@ env/
 *.png
 *.jpg
 *.json
+
+# === 新增：强制允许上传资源和配置文件夹 ===
+!assets/
+!config/
