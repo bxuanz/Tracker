@@ -11,13 +11,3 @@ venv/
 env/
 .env
 
-# Data (千万不要把你的大TIF传上去)
-*.tif
-*.tiff
-*.png
-*.jpg
-*.json
-
-# === 新增：强制允许上传资源和配置文件夹 ===
-!assets/
-!config/

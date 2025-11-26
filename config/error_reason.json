@@ -1,0 +1,9 @@
+{
+    "reasons": [
+        "框质量差 (Bounding Box Quality Bad)",
+        "事件类别错误 (Wrong Event Label)",
+        "时间区间不准确 (Inaccurate Timestamp)",
+        "画面模糊/遮挡 (Blurred/Occluded)",
+        "其他 (Other)"
+    ]
+}
