@@ -118,7 +118,6 @@ Right-click any item in the **Events List**:
 | :--- | :--- |
 | `←`  | Previous Frame |
 | `→`  | Next Frame |
-| `1` ~ `9` | Quick jump to frame index |
 | `LMB` (Left Click) | Draw / Drag Box |
 | `RMB` (Right Click) | Pan Canvas |
 | `Wheel` | Zoom Canvas |
