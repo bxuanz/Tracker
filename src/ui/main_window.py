@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QScrollArea, QProgressBar, QApplication, 
                              QListWidgetItem, QAbstractItemView, QGroupBox, 
                              QRadioButton, QButtonGroup, QComboBox)
-from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtCore import Qt, QRectF, QTime
 from PyQt6.QtGui import QAction, QColor, QImage, QPixmap, QIcon, QBrush
 
 from src.utils.image_loader import ImageLoader
@@ -19,7 +19,7 @@ from src.ui.category_dialog import CategoryManagerDialog
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tracker V13 (Final Complete)")
+        self.setWindowTitle("Tracker V13 (Auto-Save Enabled)")
         self.resize(1600, 950) 
         
         # === 数据状态 ===
@@ -30,9 +30,9 @@ class MainWindow(QMainWindow):
         self.image_map = {} 
         self.current_idx = 0
         
-        # 1. 事件数据 (内存中): { eid: {category, caption, box(xywh), frame_indices(set), quality_status, reject_reason} }
+        # 1. 事件数据 (内存中)
         self.annotations = {}
-        # 2. 质量数据: { "filename.tif": "poor" / "good" }
+        # 2. 质量数据
         self.quality_map = {} 
         
         self.current_event_id = None
@@ -40,11 +40,11 @@ class MainWindow(QMainWindow):
         # === 坐标计算核心 ===
         self.original_size = (1, 1) # (w, h)
         self.current_pixmap_size = (1, 1) # (w, h)
-        self.downsample_ratio = 1.0 # 仅做备用
+        self.downsample_ratio = 1.0
         
         self.config = ConfigManager()
 
-        # [新增] 加载错误原因配置
+        # 加载错误原因配置
         self.error_reasons = self.load_error_config()
         
         self.create_menu_bar()
@@ -52,7 +52,6 @@ class MainWindow(QMainWindow):
 
     def load_error_config(self):
         """读取 config/error_reasons.json"""
-        # 假设 config 文件夹在项目根目录下 (src 的同级目录)
         try:
             base_dir = Path(__file__).resolve().parent.parent.parent
             config_path = base_dir / "config" / "error_reasons.json"
@@ -162,7 +161,7 @@ class MainWindow(QMainWindow):
         # --- Splitter ---
         v_splitter = QSplitter(Qt.Orientation.Vertical)
         
-        # A. Events List (1/3)
+        # A. Events List
         w_events = QWidget()
         l_events = QVBoxLayout(w_events)
         l_events.setContentsMargins(0,0,0,0)
@@ -174,27 +173,16 @@ class MainWindow(QMainWindow):
         self.event_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         l_events.addWidget(self.event_list)
         
-        # B. Folders List (2/3)
+        # B. Folders List
         w_folders = QWidget()
         l_folders = QVBoxLayout(w_folders)
         l_folders.setContentsMargins(0,0,0,0)
         l_folders.addWidget(QLabel("📁 Sub-Folders / Datasets:"))
         self.folder_list = QListWidget()
         self.folder_list.setStyleSheet("""
-            QListWidget { 
-                background-color: #FFFFFF; 
-                color: #000000; 
-                font-size: 10pt; 
-                border: 1px solid #ccc;
-            }
-            QListWidget::item { 
-                padding: 5px; 
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:selected { 
-                background-color: #007ACC; 
-                color: white; 
-            }
+            QListWidget { background-color: #FFFFFF; color: #000000; font-size: 10pt; border: 1px solid #ccc; }
+            QListWidget::item { padding: 5px; border-bottom: 1px solid #eee; }
+            QListWidget::item:selected { background-color: #007ACC; color: white; }
         """)
         self.folder_list.itemClicked.connect(self.change_dataset_folder)
         self.folder_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -208,9 +196,9 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(btn_load)
         right_layout.addWidget(v_splitter) 
 
-        # ==================== [新增] 质量评价面板 ====================
+        # ==================== 质量评价面板 ====================
         self.qc_group = QGroupBox("选中事件评价 (Event Quality)")
-        self.qc_group.setEnabled(False) # 默认禁用
+        self.qc_group.setEnabled(False)
         self.qc_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid gray; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }")
         
         qc_layout = QVBoxLayout(self.qc_group)
@@ -250,8 +238,8 @@ class MainWindow(QMainWindow):
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setStyleSheet("color: #E06C75; font-weight: bold;")
         
-        btn_save = QPushButton("💾 Save All Data")
-        btn_save.clicked.connect(self.save_all)
+        btn_save = QPushButton("💾 Save All Data (Manual)")
+        btn_save.clicked.connect(lambda: self.save_all(silent=False))
         btn_save.setStyleSheet("height: 40px; font-weight: bold; background-color: #007ACC; color: white;")
         
         right_layout.addWidget(self.lbl_status)
@@ -266,7 +254,7 @@ class MainWindow(QMainWindow):
         
         self.frame_btns = []
 
-    # === [新增] 质量评价逻辑函数 ===
+    # === [关键逻辑] 质量评价与自动保存 ===
 
     def update_qc_ui_from_data(self, eid):
         """根据当前选中的 Event ID 更新评价面板 UI"""
@@ -277,11 +265,9 @@ class MainWindow(QMainWindow):
         self.qc_group.setEnabled(True)
         data = self.annotations[eid]
         
-        # 获取状态，默认 good
         status = data.get("quality_status", "good")
         reason = data.get("reject_reason", "")
         
-        # 暂停信号防止循环触发
         self.rb_good.blockSignals(True)
         self.rb_bad.blockSignals(True)
         self.combo_reason.blockSignals(True)
@@ -289,12 +275,11 @@ class MainWindow(QMainWindow):
         if status == "bad":
             self.rb_bad.setChecked(True)
             self.combo_reason.setEnabled(True)
-            # 设置下拉框文字
             idx = self.combo_reason.findText(reason)
             if idx != -1:
                 self.combo_reason.setCurrentIndex(idx)
             else:
-                if reason: # 如果原因不在列表中，临时添加或仅显示第一项
+                if reason:
                     self.combo_reason.addItem(reason)
                     self.combo_reason.setCurrentText(reason)
         else:
@@ -319,13 +304,19 @@ class MainWindow(QMainWindow):
             self.annotations[self.current_event_id]["reject_reason"] = self.combo_reason.currentText()
         else:
             self.annotations[self.current_event_id]["reject_reason"] = None
-            
-        self.lbl_status.setText(f"Updated Quality for Event ID {self.current_event_id}")
+        
+        # 1. 强制刷新列表 (更新红色的❌)
+        self.refresh_list()
+        # 2. 保持选中状态
+        self.select_by_id(self.current_event_id)
+        # 3. 自动保存
+        self.save_all(silent=True) 
 
     def on_reason_changed(self, text):
-        """下拉框选择改变时触发"""
+        """原因修改 -> 自动保存"""
         if self.current_event_id and self.rb_bad.isChecked():
             self.annotations[self.current_event_id]["reject_reason"] = text
+            self.save_all(silent=True)
 
     # === 1. 精准坐标计算 ===
     
@@ -333,24 +324,19 @@ class MainWindow(QMainWindow):
         orig_w, orig_h = self.original_size
         pix_w, pix_h = self.current_pixmap_size
         if pix_w > 0:
-            # 实时计算，消除累积误差
             real_x = int(x * (orig_w / pix_w))
             real_y = int(y * (orig_h / pix_h))
             self.lbl_coords.setText(f"X: {real_x}, Y: {real_y}")
 
     def rect_to_real(self, rect):
-        """Canvas(Buffer) -> Real(xywh)"""
         orig_w, orig_h = self.original_size
         pix_w, pix_h = self.current_pixmap_size
         if pix_w == 0: return [0,0,0,0]
-        
         sx = orig_w / pix_w
         sy = orig_h / pix_h
-        
         return [rect.x() * sx, rect.y() * sy, rect.width() * sx, rect.height() * sy]
 
     def render_annotations(self):
-        """Real(xywh) -> Canvas(Buffer)"""
         to_draw = []
         orig_w, orig_h = self.original_size
         pix_w, pix_h = self.current_pixmap_size
@@ -369,7 +355,6 @@ class MainWindow(QMainWindow):
                 
                 rect = QRectF(bx, by, bw, bh)
                 is_sel = (eid == self.current_event_id)
-                # 可以在这里根据 Good/Bad 改变颜色，或者保持不变
                 label = f"ID {eid}: {data['category']}"
                 if data.get("quality_status") == "bad":
                     label += " (BAD)"
@@ -377,7 +362,7 @@ class MainWindow(QMainWindow):
                 to_draw.append((rect, self.get_color(eid), label, is_sel))
         self.canvas.set_annotations(to_draw)
 
-    # === 2. 核心增删改逻辑 ===
+    # === 2. 核心增删改逻辑 (含自动保存) ===
 
     def on_geometry_changed(self, rect, is_new):
         real_box = self.rect_to_real(rect)
@@ -385,7 +370,6 @@ class MainWindow(QMainWindow):
         if is_new:
             existing = {eid: {'category': d.get('category',''), 'caption': d.get('caption','')} for eid, d in self.annotations.items()}
             
-            # 传入字典结构的 categories
             dlg = BatchDialog(self, self.config.categories, self.current_idx, len(self.image_paths), existing)
             
             if dlg.exec():
@@ -408,7 +392,6 @@ class MainWindow(QMainWindow):
                     sub_cat = data["sub_category"]
                     caption = data["caption"]
                     
-                    # 保存新类别
                     self.config.add_category(group, sub_cat)
                     
                     new_id = max(self.annotations.keys(), default=0) + 1
@@ -417,12 +400,15 @@ class MainWindow(QMainWindow):
                         "caption": caption, 
                         "box": real_box,
                         "frame_indices": new_indices,
-                        "quality_status": "good",  # 默认为 Good
+                        "quality_status": "good",
                         "reject_reason": None
                     }
                     self.refresh_list()
                     self.select_by_id(new_id)
                     self.lbl_status.setText(f"Created New Event {new_id}.")
+                
+                # [自动保存]
+                self.save_all(silent=True)
             self.render_annotations()
         else:
             # Modify
@@ -430,80 +416,90 @@ class MainWindow(QMainWindow):
                 self.annotations[self.current_event_id]["box"] = real_box
                 self.render_annotations()
                 self.lbl_status.setText(f"Updated ID {self.current_event_id}.")
+                # [自动保存]
+                self.save_all(silent=True)
 
-    # === 3. 核心保存加载 (box_2d xyxy 支持) ===
+    # === 3. 核心保存加载 (含 Silent 模式) ===
 
-    def save_all(self):
-            if not self.image_paths: return
-            folder = Path(self.image_paths[0]).parent
-            
-            # 1. 校验 Caption
-            for eid, data in self.annotations.items():
-                if not data.get("caption", "").strip():
+    def save_all(self, silent=False):
+        """
+        :param silent: True=自动保存(不弹窗), False=手动保存(弹窗)
+        """
+        if not self.image_paths: return
+        folder = Path(self.image_paths[0]).parent
+        
+        # 1. 校验 (自动保存时不阻断，只打印)
+        for eid, data in self.annotations.items():
+            if not data.get("caption", "").strip():
+                if not silent:
                     QMessageBox.warning(self, "Error", f"Event ID {eid} missing caption!")
-                    return
+                else:
+                    print(f"[Auto-Save] Skipped: Event ID {eid} missing caption")
+                return
 
-            # 2. 构建 events 字典
-            events_dict = {}
-            for eid, data in self.annotations.items():
-                frames_indices = sorted(list(data["frame_indices"]))
-                frames_names = []
-                for idx in frames_indices:
-                    if 0 <= idx < len(self.image_paths):
-                        frames_names.append(Path(self.image_paths[idx]).name)
-                
-                # xywh -> xyxy
-                x, y, w, h = data["box"]
-                x2 = x + w
-                y2 = y + h
-                
-                events_dict[eid] = {
-                    "category": data["category"],
-                    "caption": data["caption"],
-                    "box_2d": [x, y, x2, y2], 
-                    "involved_frames": frames_names,
-                    # [新增] 保存质量信息
-                    "quality_status": data.get("quality_status", "good"),
-                    "reject_reason": data.get("reject_reason", None)
-                }
-                
-            # 3. 构建 image_quality 字典
-            quality_dict = {}
-            for path_str in self.image_paths:
-                fname = Path(path_str).name
-                status = self.quality_map.get(fname, "good")
-                quality_dict[fname] = status
-
-            final_json = {
-                "events": events_dict,
-                "image_quality": quality_dict
+        # 2. 构建 events 字典
+        events_dict = {}
+        for eid, data in self.annotations.items():
+            frames_indices = sorted(list(data["frame_indices"]))
+            frames_names = []
+            for idx in frames_indices:
+                if 0 <= idx < len(self.image_paths):
+                    frames_names.append(Path(self.image_paths[idx]).name)
+            
+            x, y, w, h = data["box"]
+            x2 = x + w
+            y2 = y + h
+            
+            events_dict[eid] = {
+                "category": data["category"],
+                "caption": data["caption"],
+                "box_2d": [x, y, x2, y2], 
+                "involved_frames": frames_names,
+                "quality_status": data.get("quality_status", "good"),
+                "reject_reason": data.get("reject_reason", None)
             }
-                
-            try:
-                save_path = folder / "annotations.json"
-                with open(save_path, 'w', encoding='utf-8') as f:
-                    json.dump(final_json, f, indent=4, ensure_ascii=False)
-                
-                report = (f"✅ 保存成功 (Save Successful)!\n\n"
+            
+        # 3. 构建 image_quality 字典
+        quality_dict = {}
+        for path_str in self.image_paths:
+            fname = Path(path_str).name
+            status = self.quality_map.get(fname, "good")
+            quality_dict[fname] = status
+
+        final_json = {
+            "events": events_dict,
+            "image_quality": quality_dict
+        }
+            
+        try:
+            save_path = folder / "annotations.json"
+            with open(save_path, 'w', encoding='utf-8') as f:
+                json.dump(final_json, f, indent=4, ensure_ascii=False)
+            
+            if not silent:
+                report = (f"✅ 保存成功!\n\n"
                         f"📂 路径: {save_path}\n"
-                        f"----------------------------------\n"
-                        f"📝 事件数量 (Events): {len(events_dict)}\n"
-                        f"🖼️ 图像标记 (Images): {len(quality_dict)}\n"
-                        f"📐 坐标格式: XYXY (Left-Top, Right-Bottom)")
-                
+                        f"📝 事件数量: {len(events_dict)}")
                 QMessageBox.information(self, "Save Report", report)
-                
-                # 更新列表颜色
-                curr_items = self.folder_list.selectedItems()
-                if curr_items:
-                    item = curr_items[0]
-                    txt = item.text()
-                    if "✅" not in txt:
-                        new_txt = txt.replace("⬜", "✅")
-                        item.setText(new_txt)
-                        item.setForeground(QBrush(QColor("#008000")))
-            except Exception as e:
+            else:
+                # 状态栏闪烁提示
+                t_str = QTime.currentTime().toString("HH:mm:ss")
+                self.lbl_status.setText(f"💾 Auto-saved at {t_str}")
+
+            # 更新列表文件夹颜色
+            curr_items = self.folder_list.selectedItems()
+            if curr_items:
+                item = curr_items[0]
+                txt = item.text()
+                if "✅" not in txt:
+                    new_txt = txt.replace("⬜", "✅")
+                    item.setText(new_txt)
+                    item.setForeground(QBrush(QColor("#008000")))
+        except Exception as e:
+            if not silent:
                 QMessageBox.critical(self, "Save Error", str(e))
+            else:
+                print(f"[Auto-Save] Failed: {e}")
 
     def load_annotations(self, folder):
         path = Path(folder) / "annotations.json"
@@ -523,7 +519,6 @@ class MainWindow(QMainWindow):
                     for fname in dat.get("involved_frames", []):
                         if fname in self.image_map: idx_set.add(self.image_map[fname])
                     
-                    # xyxy -> xywh
                     if "box_2d" in dat:
                         x1, y1, x2, y2 = dat["box_2d"]
                         box_xywh = [x1, y1, x2-x1, y2-y1]
@@ -535,7 +530,6 @@ class MainWindow(QMainWindow):
                         "caption": dat.get("caption", ""),
                         "box": box_xywh,
                         "frame_indices": idx_set,
-                        # [新增] 读取质量信息
                         "quality_status": dat.get("quality_status", "good"),
                         "reject_reason": dat.get("reject_reason", None)
                     }
@@ -604,7 +598,7 @@ class MainWindow(QMainWindow):
         self.setup_frame_bar(); self.current_idx = 0; self.load_image()
         self.lbl_status.setText(f"Loaded {folder.name}")
 
-    # === 5. 辅助功能 ===
+    # === 5. 辅助功能 (含自动保存) ===
 
     def load_image(self):
         if not self.image_paths: return
@@ -635,6 +629,8 @@ class MainWindow(QMainWindow):
         else:
             self.quality_map[fname] = "good"
             self.lbl_status.setText(f"Marked {fname} as GOOD.")
+        # [自动保存]
+        self.save_all(silent=True)
 
     def refresh_list(self):
         self.event_list.clear()
@@ -648,16 +644,17 @@ class MainWindow(QMainWindow):
                     ranges.append(f"{start}" if start == prev else f"{start}-{prev}"); start = prev = i
             ranges.append(f"{start}" if start == prev else f"{start}-{prev}")
             return ", ".join(ranges)
+        
         for eid in sorted(self.annotations.keys()):
             d = self.annotations[eid]; rng = format_ranges(d['frame_indices']); cat = d.get("category", "Unk")
             
-            # 列表显示状态标记
             display_text = f"ID {eid}: {cat} [{rng}]"
+            # 如果是 bad，增加标记
             if d.get("quality_status") == "bad":
                 display_text += " ❌"
                 
             item = QListWidgetItem(display_text)
-            # 如果是 bad，可以让列表项变红
+            # 如果是 bad，标红
             if d.get("quality_status") == "bad":
                 item.setForeground(QBrush(QColor("red")))
                 
@@ -681,6 +678,7 @@ class MainWindow(QMainWindow):
             if self.current_idx in self.annotations[eid]["frame_indices"]:
                 self.annotations[eid]["frame_indices"].remove(self.current_idx)
                 self.refresh_list(); self.render_annotations()
+                self.save_all(silent=True) # [自动保存]
 
     def trim_event_after(self, eid):
         if eid not in self.annotations: return
@@ -692,6 +690,7 @@ class MainWindow(QMainWindow):
         to_remove = [i for i in list(frames) if i > current]
         for i in to_remove: frames.remove(i)
         self.refresh_list(); self.render_annotations()
+        self.save_all(silent=True) # [自动保存]
 
     def set_frame_as_start(self, eid):
         if eid not in self.annotations: return
@@ -705,20 +704,21 @@ class MainWindow(QMainWindow):
             to_remove = [i for i in list(frames) if i < current]
             for i in to_remove: frames.remove(i)
         self.refresh_list(); self.render_annotations()
+        self.save_all(silent=True) # [自动保存]
 
     def delete_event(self, eid):
         if eid in self.annotations: 
             del self.annotations[eid]
             self.current_event_id = None
-            self.qc_group.setEnabled(False) # [修改] 删除后禁用面板
+            self.qc_group.setEnabled(False) 
             self.refresh_list(); self.render_annotations()
+            self.save_all(silent=True) # [自动保存]
 
     def select_event(self, item):
         try: 
             eid = int(item.text().split(":")[0].replace("ID ", ""))
             self.current_event_id = eid
             self.render_annotations()
-            # [新增] 更新评价 UI
             self.update_qc_ui_from_data(eid)
         except: pass
 
@@ -728,7 +728,6 @@ class MainWindow(QMainWindow):
             if self.event_list.item(i).text().startswith(f"ID {eid}:"): 
                 self.event_list.setCurrentRow(i); break
         self.render_annotations()
-        # [新增] 更新评价 UI
         self.update_qc_ui_from_data(eid)
 
     def get_color(self, eid): return QColor.fromHsv(int((eid * 137.5) % 360), 200, 255)
