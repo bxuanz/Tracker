@@ -16,6 +16,7 @@ from src.ui.canvas import AnnotationCanvas
 from src.ui.batch_dialog import BatchDialog
 from src.ui.category_dialog import CategoryManagerDialog
 from src.ui.edit_dialog import EditEventDialog  # <--- 新增
+from PyQt6.QtGui import QKeySequence, QShortcut # 增加 QKeySequence, QShortcut
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -50,6 +51,17 @@ class MainWindow(QMainWindow):
         
         self.create_menu_bar()
         self.init_ui()
+        self.setup_shortcuts()
+
+    def setup_shortcuts(self):
+        # 上一张：左箭头 或 上箭头
+        QShortcut(QKeySequence(Qt.Key.Key_Left), self).activated.connect(self.prev_frame)
+        QShortcut(QKeySequence(Qt.Key.Key_Up), self).activated.connect(self.prev_frame)
+        
+        # 下一张：右箭头 或 下箭头
+        QShortcut(QKeySequence(Qt.Key.Key_Right), self).activated.connect(self.next_frame)
+        QShortcut(QKeySequence(Qt.Key.Key_Down), self).activated.connect(self.next_frame)
+
 
     def load_error_config(self):
         """读取 config/error_reasons.json"""
@@ -366,29 +378,50 @@ class MainWindow(QMainWindow):
     # === 2. 核心增删改逻辑 (含自动保存) ===
 
     def on_geometry_changed(self, rect, is_new):
+        # 1. 坐标修正（防止负数或超出）
         real_box = self.rect_to_real(rect)
+        rx, ry, rw, rh = real_box
+        orig_w, orig_h = self.original_size
         
+        # 限制坐标在图片范围内 (Clamp)
+        x1 = max(0, min(rx, orig_w))
+        y1 = max(0, min(ry, orig_h))
+        x2 = max(0, min(rx + rw, orig_w))
+        y2 = max(0, min(ry + rh, orig_h))
+        
+        # 更新修正后的 box
+        real_box = [x1, y1, x2 - x1, y2 - y1]
+        
+        # 如果框太小（无效框），直接重绘并退出
+        if real_box[2] < 1 or real_box[3] < 1:
+            self.render_annotations()
+            return
+
         if is_new:
-            existing = {eid: {'category': d.get('category',''), 'caption': d.get('caption','')} for eid, d in self.annotations.items()}
+            # 准备数据给弹窗
+            existing = {eid: {'category': d.get('category',''), 'caption': d.get('caption','')} 
+                        for eid, d in self.annotations.items()}
             
             dlg = BatchDialog(self, self.config.categories, self.current_idx, len(self.image_paths), existing)
             
+            # === 只有点击了 OK (dlg.exec() 为 True) 才执行下面的逻辑 ===
             if dlg.exec():
                 data = dlg.result_data
-                target_id = data["target_id"]
+                # 确保在这里定义 target_id
+                target_id = data["target_id"] 
                 end_idx = data["end_idx"]
                 new_indices = set(range(self.current_idx, end_idx + 1))
 
                 if target_id != -1:
-                    # Append
+                    # 追加到已有事件 (Append)
                     if target_id in self.annotations:
                         self.annotations[target_id]["frame_indices"].update(new_indices)
-                        self.annotations[target_id]["box"] = real_box
+                        self.annotations[target_id]["box"] = real_box # 使用修正后的 box
                         self.refresh_list()
                         self.select_by_id(target_id)
                         self.lbl_status.setText(f"Appended to ID {target_id}.")
                 else:
-                    # New
+                    # 创建新事件 (New)
                     group = data["group"]
                     sub_cat = data["sub_category"]
                     caption = data["caption"]
@@ -399,7 +432,7 @@ class MainWindow(QMainWindow):
                     self.annotations[new_id] = {
                         "category": sub_cat, 
                         "caption": caption, 
-                        "box": real_box,
+                        "box": real_box, # 使用修正后的 box
                         "frame_indices": new_indices,
                         "quality_status": "good",
                         "reject_reason": None
@@ -408,16 +441,18 @@ class MainWindow(QMainWindow):
                     self.select_by_id(new_id)
                     self.lbl_status.setText(f"Created New Event {new_id}.")
                 
-                # [自动保存]
+                # 只有数据改变了才保存
                 self.save_all(silent=True)
+            
+            # 无论是否取消，都需要重绘（如果取消，要清除刚才画的临时框）
             self.render_annotations()
+            
         else:
-            # Modify
+            # 修改已有框 (Modify)
             if self.current_event_id:
-                self.annotations[self.current_event_id]["box"] = real_box
+                self.annotations[self.current_event_id]["box"] = real_box # 使用修正后的 box
                 self.render_annotations()
                 self.lbl_status.setText(f"Updated ID {self.current_event_id}.")
-                # [自动保存]
                 self.save_all(silent=True)
 
     # === 3. 核心保存加载 (含 Silent 模式) ===
@@ -760,10 +795,10 @@ class MainWindow(QMainWindow):
         if self.current_idx>0: self.jump_frame(self.current_idx-1)
     def next_frame(self): 
         if self.current_idx<len(self.image_paths)-1: self.jump_frame(self.current_idx+1)
-    def keyPressEvent(self, event):
-        if event.key() in [Qt.Key.Key_Left, Qt.Key.Key_Up]: self.prev_frame()
-        elif event.key() in [Qt.Key.Key_Right, Qt.Key.Key_Down]: self.next_frame()
-        else: super().keyPressEvent(event)
+    # def keyPressEvent(self, event):
+    #     if event.key() in [Qt.Key.Key_Left, Qt.Key.Key_Up]: self.prev_frame()
+    #     elif event.key() in [Qt.Key.Key_Right, Qt.Key.Key_Down]: self.next_frame()
+    #     else: super().keyPressEvent(event)
     def edit_event_info(self, eid):
         """编辑已有事件的属性"""
         if eid not in self.annotations: return
