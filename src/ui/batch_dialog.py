@@ -11,8 +11,7 @@ class BatchDialog(QDialog):
         
         self.categories_dict = categories_dict
         
-        # === 修改点：动态计算宽度 ===
-        # 逻辑：父类数量 * 200，但设定最小宽度 800 以防控件挤压
+        # === 动态计算宽度 ===
         calc_width = len(self.categories_dict) * 200
         self.resize(max(800, calc_width), 700) 
         # =========================
@@ -100,12 +99,21 @@ class BatchDialog(QDialog):
         # === 4. Slider ===
         main_layout.addWidget(QLabel(f"填充范围 (Start: Frame {self.start_idx+1}):"))
         h_layout = QHBoxLayout()
+        
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(self.start_idx, total_frames - 1)
-        self.slider.setValue(total_frames - 1)
+        
+        # === 修改点 1：Slider 默认值设为当前帧 ===
+        self.slider.setValue(self.start_idx)  
+        # ======================================
+        
         self.spin = QSpinBox()
         self.spin.setRange(self.start_idx + 1, total_frames)
-        self.spin.setValue(total_frames)
+        
+        # === 修改点 2：SpinBox 默认值设为当前帧+1 (因为它是1-based显示) ===
+        self.spin.setValue(self.start_idx + 1)
+        # ==============================================================
+        
         self.slider.valueChanged.connect(lambda v: self.spin.setValue(v + 1))
         self.spin.valueChanged.connect(lambda v: self.slider.setValue(v - 1))
         h_layout.addWidget(self.slider); h_layout.addWidget(self.spin)
@@ -220,6 +228,7 @@ class BatchDialog(QDialog):
 
     def update_label(self):
         end = self.slider.value()
+        # 更新提示文本
         self.lbl_info.setText(f"Range: {self.start_idx+1} -> {end+1} ({end-self.start_idx+1} frames)")
 
     def accept(self):

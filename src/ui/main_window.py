@@ -21,7 +21,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut # 增加 QKeySequence, QShortcut
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tracker V13 (Auto-Save Enabled)")
+        self.setWindowTitle("Tracker")
         self.resize(1600, 950) 
         
         # === 数据状态 ===

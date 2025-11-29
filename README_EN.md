@@ -1,7 +1,6 @@
 <div align="center">
   <img src="./assets/icon.png" alt="tracker-icon" height="100"/>
 </div>
-
 <div align="center">
 
 **English | [简体中文](README.md)**
