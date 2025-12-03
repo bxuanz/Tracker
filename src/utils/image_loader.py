@@ -1,7 +1,14 @@
 import numpy as np
 import rasterio
 from PIL import Image
-
+import warnings
+# 如果你的环境里安装了 rasterio，通常需要先 import 它才能引用具体的 Warning 类
+# 如果不确定，直接用字符串忽略也可以，但在 import rasterio 后过滤更精准
+try:
+    from rasterio.errors import NotGeoreferencedWarning
+    warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+except ImportError:
+    pass
 Image.MAX_IMAGE_PIXELS = None
 
 MAX_TEXTURE_SIZE = 8192 

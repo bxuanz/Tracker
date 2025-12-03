@@ -1,60 +1,68 @@
 <div align="center">
-  <img src="./assets/icon.png" alt="tracker-icon" height="100"/>
-</div>
-<div align="center">
+  <img src="./assets/icon.png" alt="tracker-icon" height="120"/>
 
-**English | [简体中文](README.md)**
+  # Tracker V13
 
-</div>
+  **High-Performance Universal Temporal Annotation Tool**
 
-<div align="center">
+  [![PyQt6](https://img.shields.io/badge/GUI-PyQt6-green.svg)](https://riverbankcomputing.com/software/pyqt/)
+  [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+  [![License](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
+  [![Status](https://img.shields.io/badge/Status-Stable-brightgreen.svg)]()
 
-![PyQt6](https://img.shields.io/badge/GUI-PyQt6-green)
-![Status](https://img.shields.io/badge/Status-Stable-blue)
-![License](https://img.shields.io/badge/License-MIT-orange)
-
-**A Universal Temporal Annotation Tool: From Large-scale Remote Sensing to Standard Images**
+  **English | [简体中文](README.md)**
 
 </div>
 
 <br/>
 
-**Tracker** is a high-performance, lightweight annotation tool designed to handle everything from **GB-level GeoTIFFs** to **standard small images (JPG/PNG)**.
+**Tracker** is a lightweight, high-performance annotation tool designed specifically for **"Fixed-Position, Attribute-Changing"** temporal events (e.g., construction progress, vegetation growth, surveillance monitoring).
 
-It solves the memory overflow and lag issues often encountered with LabelImg/LabelMe when loading large geospatial data. Tracker is specifically designed for **"Fixed-Position, Attribute-Changing"** temporal events (e.g., construction progress, vegetation growth, surveillance). It utilizes a **"Draw Once, Sync Everywhere"** logic to significantly boost annotation efficiency.
-
-
+It is optimized for **GB-level Remote Sensing Imagery (`.tif`)** as well as standard images, solving the memory overflow and lag issues often encountered with traditional tools. Version 13 introduces a **Multi-dimensional Quality Control System** and **Auto-Save mechanisms**, significantly boosting the efficiency and quality of dataset construction.
 
 ---
 
 ## ✨ Key Features
 
-### 🚀 High Performance
-* **Large Image Support**: Uses dynamic downsampling to smoothly load **GB-level** `.tif` / `.tiff` images.
-* **Universal Formats**: Fully supports `.png`, `.jpg`, `.jpeg`, and geospatial rasters.
-* **Smart Sorting**: Built-in Regex engine automatically extracts dates from filenames (e.g., `2023-10-01`) to ensure strict chronological ordering.
+### 🚀 Extreme Performance
+* **Large Image Support**: Utilizes dynamic downsampling and viewport caching to smoothly load and render **GB-level** `.tif` / `.tiff` geospatial images.
+* **Universal Compatibility**: Natively supports `.png`, `.jpg`, `.jpeg`, `.tif`, and other common formats.
+* **Smart Chronology**: Built-in Regex engine automatically extracts dates from filenames (e.g., `2023-10-01`) to build a precise timeline, rather than relying on simple ASCII sorting.
 
-### ⚡ Efficient Temporal Workflow
-* **Batch Mode**: Draw a box once, drag the slider, and automatically populate the event across future N frames.
-* **Discrete Append**: Supports adding non-continuous time segments to the same event ID (e.g., object appears in frames 1-3, then again in 8-10).
-* **Sync Edit**: Modify the box position in *any* frame, and the update automatically syncs to *all* frames for that event (based on the fixed-region assumption).
+### ⚡ Efficient Workflow
+* **Batch Population**: **"Draw Once, Sync Everywhere"**. Draw a box on the start frame and drag the slider to automatically populate the event across future N frames.
+* **Discrete Append**: Supports non-continuous time segments. (e.g., An object appears on days 1-3, then again on days 8-10. You can append the new segment to the existing ID without creating a duplicate.)
+* **Global Sync**: Based on the "Fixed Region Assumption," modifying the box coordinates in *any* frame automatically updates that ID's coordinates across *all* involved frames.
+* **Auto-Save**: Every operation (create, modify, evaluate) is written to the disk in real-time, preventing data loss from crashes.
 
 ### 🛡️ Dual-Level Quality Control
-* **Image-Level**: Mark an entire image as "Poor" (e.g., fully covered by clouds/fog).
-* **Event-Level (NEW)**: Evaluate the quality of specific bounding boxes (Good/Bad). If marked as "Bad", you can select specific reasons (e.g., `Occluded`, `Wrong Label`, `Loose Box`), which are saved directly to the JSON.
+* **Image-Level QC**: Flag an entire image as "Poor" (e.g., corrupted data or full cloud cover) with a single click.
+* **Event-Level QC**: **New in V13**. Evaluate individual annotation instances:
+    * **Good**: Valid sample.
+    * **Bad**: Invalid/Low-quality sample. Supports selecting specific reasons (e.g., `Occluded`, `Wrong Label`, `Loose Box`). This data is saved to JSON for dataset cleaning.
 
 ---
 
 ## 🛠️ Installation
 
+### Requirements
+* Python 3.10+
+* Conda environment (Recommended)
+
+### Steps
+
 ```bash
 # 1. Clone Repository
-git clone https://github.com/your-repo/Tracker.git
+git clone [https://github.com/your-repo/Tracker.git](https://github.com/your-repo/Tracker.git)
 cd Tracker
 
-# 2. Install Dependencies (Conda recommended)
+# 2. Create and Activate Environment (Optional but recommended)
+conda create -n tracker python=3.10
+conda activate tracker
+
+# 3. Install Dependencies
 pip install -r requirements.txt
-# Core deps: PyQt6, numpy, rasterio, Pillow
+# Core libs: PyQt6, numpy, rasterio, Pillow
 ```
 
 ---
@@ -62,74 +70,73 @@ pip install -r requirements.txt
 ## 🏃‍♂️ User Guide
 
 ### 1. Launch & Load
-
-Run `main.py` to start:
-
+Run the main script:
 ```bash
 python main.py
 ```
-
-* Click **"📂 Open Root Folder"** on the top right to select your image directory.
-* The timeline navigation bar will generate automatically at the bottom.
+* Click **"📂 Open Root Folder"** on the top right.
+* Select the directory containing your image sequence.
+* The tool will scan, sort, and index the images. A timeline navigation bar will appear at the bottom.
 
 ### 2. Annotation Workflow
 
-#### A. Create Annotation
-1.  **Draw Box**: Drag the Left Mouse Button on the canvas.
-2.  **Fill Info**: A dialog appears upon release:
-    * **Group/Category**: Select or type a new category.
-    * **Caption**: Enter a detailed description.
-    * **End Frame**: Drag the slider to set how long this event lasts.
-3.  **Confirm**: Click OK to auto-generate continuous annotations.
+#### A. Create New Event
+1.  **Draw**: Drag the Left Mouse Button on the canvas to draw a bounding box.
+2.  **Input Attributes**: A dialog appears upon release:
+    * **Group/Category**: Select from the list or type a new category.
+    * **Caption**: Enter a detailed natural language description.
+    * **End Frame**: Drag the slider to visually set the duration of this event.
+3.  **Confirm**: Click OK. The system generates continuous annotations for the selected range.
 
-#### B. Quality Check (QC) - ✨ New in V13
-When you find an imperfect annotation (e.g., object blocked by trees, or box not tight enough) but don't want to delete it:
+#### B. Quality Check (QC) ✨
+*When you find an imperfect annotation (e.g., object partially blocked by trees) but wish to keep the record:*
 
-1.  **Select Event**: Click the event in the right-side list (e.g., `ID 1: Vehicle`).
-2.  **Check QC Panel**: Look for the **"Event Quality"** section at the bottom right.
+1.  **Select Event**: Click the target event in the right-side **Events List** (e.g., `ID 1: Construction`).
+2.  **QC Panel**: Locate the **"Event Quality"** section at the bottom right.
 3.  **Mark as Bad**:
-    * Select **"❌ Bad"**.
-    * **Select Reason**: Choose from the dropdown (e.g., `Occluded`, `Loose Box`).
-4.  **Visual Feedback**: The item in the list will turn RED with a `❌` mark.
+    * Switch the toggle to **"❌ Bad"**.
+    * **Select Reason**: Choose a specific reason from the dropdown (e.g., `Occluded`, `Loose Box`).
+4.  **Feedback**: The item in the list will turn RED with a `❌` mark.
 
 #### C. Append Segment
-*Scenario: Object disappears for a few days and reappears.*
-1.  Jump to the frame where it reappears.
-2.  Draw a box.
-3.  In the dropdown, select **"ID x: [Existing Event Name]"**.
-4.  Select the end frame. The new segment is merged into the existing ID.
+*Scenario: An object disappears for a while and reappears at the same location.*
+1.  Navigate to the frame where the object reappears.
+2.  Draw a box at the location.
+3.  In the **Target Event** dropdown of the dialog, select **"ID x: [Existing Event Name]"**.
+4.  The system merges the new timeframe into the existing ID.
 
-### 3. Context Menu (Right-Click)
-Right-click any item in the **Events List**:
+### 3. Advanced Editing (Context Menu)
+
+Right-click any item in the **Events List** to access advanced functions:
 
 | Menu Item | Description |
 | :--- | :--- |
-| **❌ Remove Box from Current Frame** | Deletes the annotation only on the **current frame** (for temporary occlusion). |
-| **⚡ Set Current as START** | Sets current frame as the **Start Point** (crops previous frames). |
-| **⚡ Set Current as END** | Sets current frame as the **End Point** (crops subsequent frames). |
-| **🗑️ Delete Event Completely** | **Permanently deletes** the event and all history. |
+| **❌ Remove Box from Current Frame** | Removes the annotation only from the **current frame** (useful for temporary occlusion or disappearance). |
+| **⚡ Set Current as START** | Sets the current frame as the **New Start Point** (automatically crops/deletes all previous history for this ID). |
+| **⚡ Set Current as END** | Sets the current frame as the **New End Point** (automatically crops/deletes all subsequent history for this ID). |
+| **🗑️ Delete Event Completely** | **Permanently deletes** the event ID and all its history across the entire timeline. |
 
 ---
 
 ## ⌨️ Shortcuts
 
+Master these shortcuts to maximize your speed:
+
 | Key | Function |
 | :--- | :--- |
-| `←`  | Previous Frame |
-| `→`  | Next Frame |
-| `LMB` (Left Click) | Draw / Drag Box |
-| `RMB` (Right Click) | Pan Canvas |
-| `Wheel` | Zoom Canvas |
+| `←` / `↑` | Previous Frame |
+| `→` / `↓` | Next Frame |
+| `Left Click` | Draw / Select Box / Resize |
+| `Right Click` | Pan Canvas |
+| `Scroll Wheel` | Zoom Canvas |
 
 ---
 
 ## 📂 Output Format
 
-Click **"💾 Save All Data"** to generate `annotations.json` in the root folder.
+Upon clicking **"💾 Save All Data"** (or triggering Auto-Save), an `annotations.json` file is generated in the image directory.
 
-**V13 Format Specs**:
-* **Coordinates**: `box_2d` uses `[x1, y1, x2, y2]` (Top-Left, Bottom-Right).
-* **Quality Fields**: Added `quality_status` and `reject_reason`.
+### JSON Structure
 
 ```json
 {
@@ -137,12 +144,12 @@ Click **"💾 Save All Data"** to generate `annotations.json` in the root folder
         "1": {
             "category": "Vehicle",
             "caption": "A truck parked by the road",
-            "box_2d": [100, 200, 300, 400],  // [x1, y1, x2, y2]
+            "box_2d": [100, 200, 300, 400],  // Format: [x1, y1, x2, y2] (Absolute Pixels)
             "involved_frames": [
                 "2023-01-01.tif",
                 "2023-01-02.tif"
             ],
-            "quality_status": "good",         // Default
+            "quality_status": "good",         // Default is 'good'
             "reject_reason": null
         },
         "2": {
@@ -150,22 +157,25 @@ Click **"💾 Save All Data"** to generate `annotations.json` in the root folder
             "caption": "Foundation work under tree shade",
             "box_2d": [500, 600, 700, 800],
             "involved_frames": [ "2023-01-05.tif" ],
-            "quality_status": "bad",          // ❌ Marked as Bad
-            "reject_reason": "Occluded"       // ⚠️ Specific Reason
+            "quality_status": "bad",          // ❌ Marked as bad/poor quality
+            "reject_reason": "Occluded"       // ⚠️ Specific reason recorded
         }
     },
     "image_quality": {
         "2023-01-01.tif": "good",
-        "2023-01-02.tif": "poor"  // Image marked as Poor (via top flag button)
+        "2023-01-02.tif": "poor"  // Image marked as poor via the top 'Flag' button
     }
 }
 ```
 
 ---
 
-## ⚙️ Custom Configuration
+## ⚙️ Configuration
 
-You can customize dropdown options by editing JSON files in `config/`:
+You can customize the UI options by editing the JSON files in the `config/` directory without modifying the code:
 
-* **`categories.json`**: Define your labeling categories (Group/Sub-category).
-* **`error_reasons.json`**: Define reasons for quality rejection (e.g., "Blurry", "Tiny Object").
+1.  **`config/categories.json`**
+    * Define the hierarchy of categories (Group -> Sub-category) for the creation dialog.
+2.  **`config/error_reasons.json`**
+    * Define the list of "Rejection Reasons" (e.g., Blurry, Truncated, Occluded) for the QC panel.
+

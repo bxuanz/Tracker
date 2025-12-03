@@ -464,6 +464,11 @@ class MainWindow(QMainWindow):
         if not self.image_paths: return
         folder = Path(self.image_paths[0]).parent
         
+        # === 修改点 1: 获取文件夹名称作为 JSON 文件名 ===
+        json_filename = f"{folder.name}.json"
+        save_path = folder / json_filename
+        # ============================================
+        
         # 1. 校验 (自动保存时不阻断，只打印)
         for eid, data in self.annotations.items():
             if not data.get("caption", "").strip():
@@ -508,19 +513,18 @@ class MainWindow(QMainWindow):
         }
             
         try:
-            save_path = folder / "annotations.json"
             with open(save_path, 'w', encoding='utf-8') as f:
                 json.dump(final_json, f, indent=4, ensure_ascii=False)
             
             if not silent:
                 report = (f"✅ 保存成功!\n\n"
-                        f"📂 路径: {save_path}\n"
+                        f"📂 文件: {json_filename}\n"
                         f"📝 事件数量: {len(events_dict)}")
                 QMessageBox.information(self, "Save Report", report)
             else:
                 # 状态栏闪烁提示
                 t_str = QTime.currentTime().toString("HH:mm:ss")
-                self.lbl_status.setText(f"💾 Auto-saved at {t_str}")
+                self.lbl_status.setText(f"💾 Auto-saved to {json_filename} at {t_str}")
 
             # 更新列表文件夹颜色
             curr_items = self.folder_list.selectedItems()
@@ -538,13 +542,27 @@ class MainWindow(QMainWindow):
                 print(f"[Auto-Save] Failed: {e}")
 
     def load_annotations(self, folder):
-        path = Path(folder) / "annotations.json"
+        folder_path = Path(folder)
+        
+        # === 修改点 2: 优先读取 {folder}.json，兼容 annotations.json ===
+        target_path = folder_path / f"{folder_path.name}.json"
+        legacy_path = folder_path / "annotations.json"
+        
+        load_path = None
+        if target_path.exists():
+            load_path = target_path
+        elif legacy_path.exists():
+            load_path = legacy_path
+            print(f"Warning: Loaded legacy file 'annotations.json'. Next save will convert to '{folder_path.name}.json'.")
+        # ==========================================================
+
         self.annotations = {}
         self.quality_map = {}
         
-        if path.exists():
+        if load_path and load_path.exists():
             try:
-                with open(path, 'r', encoding='utf-8') as f: raw = json.load(f)
+                with open(load_path, 'r', encoding='utf-8') as f: 
+                    raw = json.load(f)
                 
                 events_src = raw.get("events", {})
                 self.quality_map = raw.get("image_quality", {})
@@ -600,7 +618,14 @@ class MainWindow(QMainWindow):
         return False
 
     def add_folder_item(self, path, is_root=False):
-        has_json = (path / "annotations.json").exists()
+        path = Path(path)
+        
+        # === 修改点 3: 检查两种文件是否存在 ===
+        new_json = path / f"{path.name}.json"
+        old_json = path / "annotations.json"
+        has_json = new_json.exists() or old_json.exists()
+        # ==================================
+        
         status = "✅" if has_json else "⬜"
         item = QListWidgetItem(f"{status} {path.name}")
         item.setData(Qt.ItemDataRole.UserRole, str(path))
