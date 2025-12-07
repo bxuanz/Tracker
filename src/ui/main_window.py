@@ -86,6 +86,90 @@ class MainWindow(QMainWindow):
         act_cats.triggered.connect(lambda: CategoryManagerDialog(self, self.config).exec())
         settings_menu.addAction(act_cats)
 
+    
+
+    # === [关键逻辑] 质量评价与自动保存 ===
+
+    def update_qc_ui_from_data(self, eid):
+        """根据当前选中的 Event ID 更新评价面板 UI"""
+        if eid not in self.annotations:
+            self.qc_group.setEnabled(False)
+            return
+            
+        self.qc_group.setEnabled(True)
+        data = self.annotations[eid]
+        
+        status = data.get("quality_status", "good")
+        reason = data.get("reject_reason", "")
+        
+        self.rb_good.blockSignals(True)
+        self.rb_bad.blockSignals(True)
+        self.combo_reason.blockSignals(True)
+        
+        if status == "bad":
+            self.rb_bad.setChecked(True)
+            self.combo_reason.setEnabled(True)
+            idx = self.combo_reason.findText(reason)
+            if idx != -1:
+                self.combo_reason.setCurrentIndex(idx)
+            else:
+                if reason:
+                    self.combo_reason.addItem(reason)
+                    self.combo_reason.setCurrentText(reason)
+        else:
+            self.rb_good.setChecked(True)
+            self.combo_reason.setEnabled(False)
+            
+        self.rb_good.blockSignals(False)
+        self.rb_bad.blockSignals(False)
+        self.combo_reason.blockSignals(False)
+
+    def on_qc_changed(self):
+        """Good/Bad 切换时触发"""
+        if not self.current_event_id or self.current_event_id not in self.annotations:
+            return
+            
+        is_bad = self.rb_bad.isChecked()
+        self.combo_reason.setEnabled(is_bad)
+        
+        # 更新数据
+        self.annotations[self.current_event_id]["quality_status"] = "bad" if is_bad else "good"
+        if is_bad:
+            self.annotations[self.current_event_id]["reject_reason"] = self.combo_reason.currentText()
+        else:
+            self.annotations[self.current_event_id]["reject_reason"] = None
+        
+        # 1. 强制刷新列表 (更新红色的❌)
+        self.refresh_list()
+        # 2. 保持选中状态
+        self.select_by_id(self.current_event_id)
+        # 3. 自动保存
+        self.save_all(silent=True) 
+
+    def on_reason_changed(self, text):
+        """原因修改 -> 自动保存"""
+        if self.current_event_id and self.rb_bad.isChecked():
+            self.annotations[self.current_event_id]["reject_reason"] = text
+            self.save_all(silent=True)
+
+    # === 1. 精准坐标计算 ===
+    
+    def update_status_bar(self, x, y):
+        orig_w, orig_h = self.original_size
+        pix_w, pix_h = self.current_pixmap_size
+        if pix_w > 0:
+            real_x = int(x * (orig_w / pix_w))
+            real_y = int(y * (orig_h / pix_h))
+            self.lbl_coords.setText(f"X: {real_x}, Y: {real_y}")
+
+    def rect_to_real(self, rect):
+        orig_w, orig_h = self.original_size
+        pix_w, pix_h = self.current_pixmap_size
+        if pix_w == 0: return [0,0,0,0]
+        sx = orig_w / pix_w
+        sy = orig_h / pix_h
+        return [rect.x() * sx, rect.y() * sy, rect.width() * sx, rect.height() * sy]
+
     def init_ui(self):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -123,6 +207,10 @@ class MainWindow(QMainWindow):
         self.canvas = AnnotationCanvas()
         self.canvas.geometry_changed.connect(self.on_geometry_changed)
         self.canvas.mouse_moved_info.connect(self.update_status_bar)
+        
+        # === 修改点 1: 连接点击选中信号 ===
+        self.canvas.event_selected.connect(self.select_by_id) 
+        # ================================
         
         # 3. Frame Strip
         self.frame_layout = QHBoxLayout()
@@ -267,88 +355,6 @@ class MainWindow(QMainWindow):
         
         self.frame_btns = []
 
-    # === [关键逻辑] 质量评价与自动保存 ===
-
-    def update_qc_ui_from_data(self, eid):
-        """根据当前选中的 Event ID 更新评价面板 UI"""
-        if eid not in self.annotations:
-            self.qc_group.setEnabled(False)
-            return
-            
-        self.qc_group.setEnabled(True)
-        data = self.annotations[eid]
-        
-        status = data.get("quality_status", "good")
-        reason = data.get("reject_reason", "")
-        
-        self.rb_good.blockSignals(True)
-        self.rb_bad.blockSignals(True)
-        self.combo_reason.blockSignals(True)
-        
-        if status == "bad":
-            self.rb_bad.setChecked(True)
-            self.combo_reason.setEnabled(True)
-            idx = self.combo_reason.findText(reason)
-            if idx != -1:
-                self.combo_reason.setCurrentIndex(idx)
-            else:
-                if reason:
-                    self.combo_reason.addItem(reason)
-                    self.combo_reason.setCurrentText(reason)
-        else:
-            self.rb_good.setChecked(True)
-            self.combo_reason.setEnabled(False)
-            
-        self.rb_good.blockSignals(False)
-        self.rb_bad.blockSignals(False)
-        self.combo_reason.blockSignals(False)
-
-    def on_qc_changed(self):
-        """Good/Bad 切换时触发"""
-        if not self.current_event_id or self.current_event_id not in self.annotations:
-            return
-            
-        is_bad = self.rb_bad.isChecked()
-        self.combo_reason.setEnabled(is_bad)
-        
-        # 更新数据
-        self.annotations[self.current_event_id]["quality_status"] = "bad" if is_bad else "good"
-        if is_bad:
-            self.annotations[self.current_event_id]["reject_reason"] = self.combo_reason.currentText()
-        else:
-            self.annotations[self.current_event_id]["reject_reason"] = None
-        
-        # 1. 强制刷新列表 (更新红色的❌)
-        self.refresh_list()
-        # 2. 保持选中状态
-        self.select_by_id(self.current_event_id)
-        # 3. 自动保存
-        self.save_all(silent=True) 
-
-    def on_reason_changed(self, text):
-        """原因修改 -> 自动保存"""
-        if self.current_event_id and self.rb_bad.isChecked():
-            self.annotations[self.current_event_id]["reject_reason"] = text
-            self.save_all(silent=True)
-
-    # === 1. 精准坐标计算 ===
-    
-    def update_status_bar(self, x, y):
-        orig_w, orig_h = self.original_size
-        pix_w, pix_h = self.current_pixmap_size
-        if pix_w > 0:
-            real_x = int(x * (orig_w / pix_w))
-            real_y = int(y * (orig_h / pix_h))
-            self.lbl_coords.setText(f"X: {real_x}, Y: {real_y}")
-
-    def rect_to_real(self, rect):
-        orig_w, orig_h = self.original_size
-        pix_w, pix_h = self.current_pixmap_size
-        if pix_w == 0: return [0,0,0,0]
-        sx = orig_w / pix_w
-        sy = orig_h / pix_h
-        return [rect.x() * sx, rect.y() * sy, rect.width() * sx, rect.height() * sy]
-
     def render_annotations(self):
         to_draw = []
         orig_w, orig_h = self.original_size
@@ -372,7 +378,11 @@ class MainWindow(QMainWindow):
                 if data.get("quality_status") == "bad":
                     label += " (BAD)"
                     
-                to_draw.append((rect, self.get_color(eid), label, is_sel))
+                # === 修改点 2: 传递 eid 给画布，用于点击识别 ===
+                # 结构: (rect, color, label, is_sel, eid)
+                to_draw.append((rect, self.get_color(eid), label, is_sel, eid))
+                # ============================================
+                
         self.canvas.set_annotations(to_draw)
 
     # === 2. 核心增删改逻辑 (含自动保存) ===
