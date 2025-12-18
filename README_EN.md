@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./assets/icon.png" alt="tracker-icon" height="120"/>
 
-  # Tracker V13
+  # Tracker 
 
   **High-Performance Universal Temporal Annotation Tool**
 
